@@ -75,6 +75,11 @@ def prepare(dataset):
     # 返回
     return data
 
+def prepare_on(dataset):
+
+    dataset['act_date']=pd.to_datetime(list(map(lambda x,y:x if str(x)!='null' else y,dataset['Date_received'],dataset['Date'])), format='%Y%m%d')
+
+    return dataset
 
 def get_label(dataset):
     """打标
@@ -701,7 +706,7 @@ def get_history_field_merchant_coupon_feature(label_field, history_field):
     return feature
 
 
-def get_history_field_user_feature(label_field, history_field):
+def get_history_field_user_feature(label_field, history_field, history_field_on):
     """历史区间的用户相关的特征
 
     - 历史上用户领取优惠券次数
@@ -718,17 +723,28 @@ def get_history_field_user_feature(label_field, history_field):
 	- 历史上用户平均核销每个商家多少张优惠券
 	- 历史上用户核销优惠券中的平均/最大/最小用户-商家距离
 
+    - 历史上用户线上操作次数
+    - 历史上用户线上点击率
+    - 历史上用户线上购买率
+    - 历史上用户线上领取率
+    - 历史上用户线上不消费次数
+    - 历史上用户线上优惠券核销次数
+    - 历史上用户线上优惠券核销率
+
     """
     print('- 历史区间的用户相关的特征')
 
     # 源数据
     data = history_field.copy()
+    data_on = history_field_on.copy()
     # 将User_id列中float类型的元素转换为int类型,因为列中存在np.nan即空值会让整列的元素变为float
     data['User_id'] = data['User_id'].map(int)
+    data_on['User_id'] = data_on['User_id'].map(int)
     # 将Date_received列中float类型的元素转换为int类型,因为列中存在np.nan即空值会让整列的元素变为float
     data['Date_received'] = data['Date_received'].map(int)
     # 方便特征提取
     data['cnt'] = 1
+    data_on['cnt'] = 1
 
     keys = ['User_id']
     # 特征名前缀,由history_field和主键组成
@@ -878,6 +894,72 @@ def get_history_field_user_feature(label_field, history_field):
     pivot = pd.DataFrame(pivot).rename(columns={
         'Distance': prefixs + 'receive_and_consume_Distance_min'}).reset_index()
     feature = pd.merge(feature, pivot, on=keys, how='left')
+
+
+    # 历史上用户线上操作次数
+    print('-- 历史上用户线上操作次数')
+    pivot = pd.pivot_table(data_on, index=keys, values='cnt',
+                           aggfunc=len)
+    pivot = pd.DataFrame(pivot).rename(columns={
+        'cnt': prefixs + 'online_action_cnt'}).reset_index()
+
+    # 历史上用户线上点击率
+    print('-- 历史上用户线上点击率')
+    pivot_act = pd.pivot_table(data_on[data_on['Action'] == 0], index=keys, values='cnt',
+                               aggfunc=len)
+    pivot_act = pd.DataFrame(pivot_act).rename(columns={
+        'cnt': prefixs + 'online_action_click_cnt'}).reset_index()
+    pivot = pd.merge(pivot, pivot_act, on=keys, how='left')
+    pivot[prefixs + 'online_action_click_rate']=list(
+        map(lambda x,y:x/y if y > 0 else 0,pivot[prefixs + 'online_action_click_cnt'],
+            pivot[prefixs + 'online_action_cnt']))
+
+    # 历史上用户线上购买率
+    print('-- 历史上用户线上购买率')
+    pivot_act = pd.pivot_table(data_on[data_on['Action'] == 1], index=keys, values='cnt',
+                               aggfunc=len)
+    pivot_act = pd.DataFrame(pivot_act).rename(columns={
+        'cnt': prefixs + 'online_action_buy_cnt'}).reset_index()
+    pivot = pd.merge(pivot, pivot_act, on=keys, how='left')
+    pivot[prefixs + 'online_action_buy_rate'] = list(
+        map(lambda x, y: x / y if y > 0 else 0, pivot[prefixs + 'online_action_buy_cnt'],
+            pivot[prefixs + 'online_action_cnt']))
+
+    # # 历史上用户线上领取率
+    # print('-- 历史上用户线上领取率')
+    # pivot_act = pd.pivot_table(data_on[data_on['Action'] == 2], index=keys, values='cnt',
+    #                            aggfunc=len)
+    # pivot_act = pd.DataFrame(pivot_act).rename(columns={
+    #     'cnt': prefixs + 'online_action_receive_cnt'}).reset_index()
+    # pivot = pd.merge(pivot, pivot_act, on=keys, how='left')
+    # pivot[prefixs + 'online_action_receive_rate'] = list(
+    #     map(lambda x, y: x / y if y > 0 else 0, pivot[prefixs + 'online_action_receive_cnt'],
+    #         pivot[prefixs + 'online_action_cnt']))
+    #
+    # # 历史上用户线上不消费次数
+    # print('-- 历史上用户线上不消费次数')
+    # pivot_act = pd.pivot_table(data_on[data_on['Action'] != 1], index=keys, values='cnt',
+    #                            aggfunc=len)
+    # pivot_act = pd.DataFrame(pivot_act).rename(columns={
+    #     'cnt': prefixs + 'online_action_unbuy_cnt'}).reset_index()
+    # pivot = pd.merge(pivot, pivot_act, on=keys, how='left')
+    #
+    # # 历史上用户线上优惠券核销次数
+    # print('-- 历史上用户线上优惠券核销次数')
+    # pivot_act = pd.pivot_table( data_on[data_on['Date_received'].map(lambda x: str(x) != 'null') & data_on['Date'].map(lambda x: str(x) != 'null')], index=keys, values='cnt',
+    #                            aggfunc=len)
+    # pivot_act = pd.DataFrame(pivot_act).rename(columns={
+    #     'cnt': prefixs + 'online_action_receive_and_consume_cnt'}).reset_index()
+    # pivot = pd.merge(pivot, pivot_act, on=keys, how='left')
+    #
+    # # 历史上用户线上优惠券核销率
+    # print('-- 历史上用户线上优惠券核销率')
+    # pivot[prefixs + '_online_action_receive_and_consume_rate']=list(
+    #     map(lambda x,y:x / y if y > 0 else 0,pivot[prefixs + 'online_action_receive_and_consume_cnt'],
+    #         pivot[prefixs + 'online_action_receive_cnt']))
+    #
+    # pivot.drop([prefixs + 'online_action_click_cnt',prefixs + 'online_action_buy_cnt',prefixs + 'online_action_receive_cnt'],  axis=1, inplace=True)
+    # feature = pd.merge(feature, pivot, on=keys, how='left')
 
     feature.fillna(0, downcast='infer', inplace=True)
 
@@ -1063,7 +1145,7 @@ def get_history_field_user_merchant_coupon_feature(history_feat):
     return history_feat
 
 
-def get_history_field_feature(label_field, history_field):
+def get_history_field_feature(label_field, history_field, history_field_on):
     # 商家特征
     m_feat = get_history_field_merchant_feature(label_field, history_field)
 
@@ -1071,7 +1153,7 @@ def get_history_field_feature(label_field, history_field):
     c_feat = get_history_field_coupon_feature(label_field, history_field)
 
     # 用户特征
-    u_feat = get_history_field_user_feature(label_field, history_field)
+    u_feat = get_history_field_user_feature(label_field, history_field, history_field_on)
 
     # 商家-优惠卷特征
     mc_feat = get_history_field_merchant_coupon_feature(label_field, history_field)
@@ -1104,7 +1186,7 @@ def get_history_field_feature(label_field, history_field):
     return history_feat
 
 
-def get_dataset(history_field, middle_field, label_field):
+def get_dataset(history_field, history_field_on, middle_field, label_field):
     """构造数据集
 
     """
@@ -1115,7 +1197,7 @@ def get_dataset(history_field, middle_field, label_field):
     # 中间区间特征
     middle_feat = get_middle_field_feature(label_field, middle_field)
     # 历史区间特征
-    history_feat = get_history_field_feature(label_field, history_field)
+    history_feat = get_history_field_feature(label_field, history_field, history_field_on)
     # 构造数据集
     # 共有属性,包括id和一些基础特征,为每个特征块的交集
     share_characters = list(set(history_feat.columns.tolist()) &
@@ -1155,9 +1237,11 @@ if __name__ == '__main__':
 
     # 源数据
     off_train = pd.read_csv(r'./input_files/ccf_offline_stage1_train.csv')
+    on_train = pd.read_csv(r'./input_files/ccf_online_stage1_train.csv')
     off_test = pd.read_csv(r'./input_files/ccf_offline_stage1_test_revised.csv')
     # 预处理
     off_train = prepare(off_train)
+    on_train = prepare_on(on_train)
     off_test = prepare(off_test)
     # 打标
     off_train = get_label(off_train)
@@ -1166,12 +1250,14 @@ if __name__ == '__main__':
     # 训练集历史区间、中间区间、标签区间
     train_history_field = off_train[
         off_train['date_received'].isin(pd.date_range('2016/3/2', periods=60))]  # [20160302,20160501)
+    train_history_field_on = on_train[on_train['act_date'].isin(pd.date_range('2016/3/2', periods=60))]
     train_middle_field = off_train[off_train['date'].isin(pd.date_range('2016/5/1', periods=15))]  # [20160501,20160516)
     train_label_field = off_train[
         off_train['date_received'].isin(pd.date_range('2016/5/16', periods=31))]  # [20160516,20160616)
     # 验证集历史区间、中间区间、标签区间
     validate_history_field = off_train[
         off_train['date_received'].isin(pd.date_range('2016/1/16', periods=60))]  # [20160116,20160316)
+    validate_history_field_on = on_train[on_train['act_date'].isin(pd.date_range('2016/1/16', periods=60))]
     validate_middle_field = off_train[
         off_train['date'].isin(pd.date_range('2016/3/16', periods=15))]  # [20160316,20160331)
     validate_label_field = off_train[
@@ -1179,16 +1265,17 @@ if __name__ == '__main__':
     # 测试集历史区间、中间区间、标签区间
     test_history_field = off_train[
         off_train['date_received'].isin(pd.date_range('2016/4/17', periods=60))]  # [20160417,20160616)
+    test_history_field_on = on_train[on_train['act_date'].isin(pd.date_range('2016/4/17', periods=60))]
     test_middle_field = off_train[off_train['date'].isin(pd.date_range('2016/6/16', periods=15))]  # [20160616,20160701)
     test_label_field = off_test.copy()  # [20160701,20160801)
 
     # 构造训练集、验证集、测试集
     print('\n构造训练集')
-    train = get_dataset(train_history_field, train_middle_field, train_label_field)
+    train = get_dataset(train_history_field, train_history_field_on, train_middle_field, train_label_field)
     print('\n构造验证集')
-    validate = get_dataset(validate_history_field, validate_middle_field, validate_label_field)
+    validate = get_dataset(validate_history_field, validate_history_field_on, validate_middle_field, validate_label_field)
     print('\n构造测试集')
-    test = get_dataset(test_history_field, test_middle_field, test_label_field)
+    test = get_dataset(test_history_field, test_history_field_on, test_middle_field, test_label_field)
 
     # 保存数据集
     train.to_csv("./prepared_dataset/train.csv")
